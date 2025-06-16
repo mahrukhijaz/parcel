@@ -43,37 +43,15 @@
         }
 
         .mapboxgl-popup {
-            max-width: 300px;
+            max-width: 200px;
+            pointer-events: none;
         }
 
         .mapboxgl-popup-content {
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        .popup-title {
-            font-weight: bold;
-            font-size: 16px;
-            color: #2d3748;
-            margin-bottom: 10px;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 5px;
-        }
-
-        .popup-content {
-            font-size: 14px;
-            color: #4a5568;
-            line-height: 1.4;
-        }
-
-        .popup-row {
-            margin-bottom: 8px;
-        }
-
-        .popup-label {
-            font-weight: 600;
-            color: #2d3748;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
         }
 
         .loading-message {
@@ -89,7 +67,6 @@
             text-align: center;
         }
 
-        /* Legend styles */
         .map-legend {
             position: absolute;
             bottom: 20px;
@@ -158,7 +135,6 @@
             <div class="text-sm text-gray-600">Please wait while we load the stormwater incentive data</div>
         </div>
         
-        <!-- Legend Container -->
         <div class="map-legend">
             <div class="legend-title">Map Layers</div>
             <div class="legend-item">
@@ -208,6 +184,7 @@
         // Variables to track hover states
         let hoveredFeatureId = null;
         let hoveredSourceId = null;
+        let currentPopup = null;
 
         // Data sources configuration
         const dataSources = {
@@ -223,14 +200,13 @@
                     'line-width': 2,
                     'line-opacity': 0.8
                 },
-                showPopup: false, // Don't show popup for jurisdiction
-                layerIds: ['rcp-jurisdiction-fill', 'rcp-jurisdiction-border'] // Track all layer IDs for this source
+                layerIds: ['rcp-jurisdiction-fill', 'rcp-jurisdiction-border']
             },
             'rcp-searched-parcels': {
                 url: 'https://172980025d15ab87bf7b5588eda99592.cdn.bubble.io/f1749803548262x214637041312076600/rcp_searched_parcels_geojson%20%281%29.geojson',
                 type: 'circle',
                 paint: {
-                    'circle-color': '#FFC107', // Yellow for searched parcels
+                    'circle-color': '#FFC107',
                     'circle-radius': [
                         'case',
                         ['boolean', ['feature-state', 'hover'], false],
@@ -251,14 +227,13 @@
                         0.9
                     ]
                 },
-                showPopup: true,
-                layerIds: ['rcp-searched-parcels-circle'] // Track all layer IDs for this source
+                layerIds: ['rcp-searched-parcels-circle']
             },
             'eligible-parcels': {
                 url: 'https://172980025d15ab87bf7b5588eda99592.cdn.bubble.io/f1749802082595x622813734410487600/rcp_eligible_parcels_geojson%20%281%29.geojson',
                 type: 'circle',
                 paint: {
-                    'circle-color': '#4CAF50', // Green for eligible parcels
+                    'circle-color': '#4CAF50',
                     'circle-radius': [
                         'case',
                         ['boolean', ['feature-state', 'hover'], false],
@@ -279,97 +254,53 @@
                         0.9
                     ]
                 },
-                showPopup: true,
-                layerIds: ['eligible-parcels-circle'] // Track all layer IDs for this source
+                layerIds: ['eligible-parcels-circle']
             }
         };
 
-        // Function to create popup content
-        function createPopupContent(properties, sourceType) {
-            let title = '';
-            let content = '';
-            
-            switch(sourceType) {
-                case 'eligible-parcels':
-                    title = 'RCP Eligible Parcel';
-                    break;
-                case 'rcp-searched-parcels':
-                    title = 'RCP Searched Parcel';
-                    break;
-                default:
-                    title = 'Feature Information';
+        // Function to set cookie and notify parent
+        function setCookie(name, value, days) {
+            let expires = "";
+            if (days) {
+                const date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                expires = "; expires=" + date.toUTCString();
             }
-
-            content = `<div class="popup-title">${title}</div><div class="popup-content">`;
+            document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/; SameSite=None; Secure`;
             
-            // Define priority properties based on source type
-            let priorityProperties = [];
-            if (sourceType === 'rcp-searched-parcels') {
-                priorityProperties = ['name', 'address', 'parcel_id', 'zone', 'owner', 'size', 'type', 'status'];
-            } else if (sourceType === 'eligible-parcels') {
-                priorityProperties = ['engaged', 'address', 'parcel_id', 'zone', 'owner', 'size', 'type', 'status'];
-            } else {
-                priorityProperties = ['address', 'parcel_id', 'zone', 'owner', 'size', 'type', 'status'];
+            // Notify parent if in iframe
+            if (window.self !== window.top) {
+                window.parent.postMessage({
+                    type: 'mapCookieSet',
+                    name: name,
+                    value: value
+                }, '*');
             }
-            
-            let hasProperties = false;
-            
-            // Display priority properties first
-            priorityProperties.forEach(key => {
-                if (properties[key] !== undefined && properties[key] !== null && properties[key] !== '') {
-                    content += `<div class="popup-row"><span class="popup-label">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${properties[key]}</div>`;
-                    hasProperties = true;
-                }
-            });
-            
-            // If no priority properties found, show first few properties
-            if (!hasProperties) {
-                let count = 0;
-                for (const [key, value] of Object.entries(properties)) {
-                    if (count >= 5) break;
-                    if (value !== null && value !== undefined && value !== '') {
-                        content += `<div class="popup-row"><span class="popup-label">${key.replace(/_/g, ' ').toUpperCase()}:</span> ${value}</div>`;
-                        count++;
-                    }
-                }
-            }
-            
-            content += '</div>';
-            return content;
         }
 
-        // Function to handle marker click and open new page
-        function handleMarkerClick(properties, sourceType) {
-            // Base URL
-            const baseUrl = 'https://fc7c21f9-2d28-4e5f-b3b4-f07c9ceefc55.weweb-preview.io/incentive-detail/?rid=be8f77e8-1c8c-4c03-87b2-dde0ba08179c';
+        // Function to handle marker click - sets cookie and posts message
+        function handleMarkerClick(properties) {
+            const address = properties.address || properties.name || properties.engaged || 'Unknown address';
+            setCookie('name', address, 1);
             
-            // Get the appropriate value based on source type
-            let mapAddressValue = '';
-            if (sourceType === 'rcp-searched-parcels' && properties.name) {
-                mapAddressValue = encodeURIComponent(properties.name);
-            } else if (sourceType === 'eligible-parcels' && properties.engaged) {
-                mapAddressValue = encodeURIComponent(properties.engaged);
-            } else if (properties.address) {
-                mapAddressValue = encodeURIComponent(properties.address);
+            // Send POST message to parent window (for iframe usage)
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'markerClicked',
+                    address: address,
+                    properties: properties
+                }, '*');
             }
             
-            // Construct the full URL
-            const fullUrl = `${baseUrl}&mapaddress=${mapAddressValue}`;
-            
-            // Open in new tab
-            window.open(fullUrl, '_blank');
+            console.log('Cookie set and message posted for address:', address);
         }
 
         // Function to add interactivity to layers
-        function addLayerInteractivity(layerId, sourceId, config) {
-            // Only add click events if showPopup is true
-            if (config.showPopup === false) {
-                return; // Skip adding interactivity for layers that shouldn't show popups
-            }
-
-            // Hover effects
+        function addLayerInteractivity(layerId, sourceId) {
+            // Hover effects - show address popup
             map.on('mouseenter', layerId, (e) => {
                 if (e.features.length > 0) {
+                    // Update hover state
                     if (hoveredFeatureId !== null && hoveredSourceId !== null) {
                         map.setFeatureState(
                             { source: hoveredSourceId, id: hoveredFeatureId },
@@ -383,6 +314,20 @@
                         { source: sourceId, id: hoveredFeatureId },
                         { hover: true }
                     );
+                    
+                    // Show address popup
+                    const address = e.features[0].properties.address || 
+                                   e.features[0].properties.name || 
+                                   e.features[0].properties.engaged || 
+                                   'Address not available';
+                    
+                    if (currentPopup) currentPopup.remove();
+                    
+                    currentPopup = new mapboxgl.Popup({ closeOnClick: false })
+                        .setLngLat(e.lngLat)
+                        .setText(address)
+                        .addTo(map);
+                    
                     map.getCanvas().style.cursor = 'pointer';
                 }
             });
@@ -396,37 +341,14 @@
                 }
                 hoveredFeatureId = null;
                 hoveredSourceId = null;
+                if (currentPopup) currentPopup.remove();
                 map.getCanvas().style.cursor = '';
             });
 
-            // Click events for popups and opening new page
+            // Click handler - only sets cookie, no URL opening
             map.on('click', layerId, (e) => {
                 if (e.features.length > 0) {
-                    const coordinates = e.features[0].geometry.type === 'Point' 
-                        ? e.features[0].geometry.coordinates.slice()
-                        : e.lngLat;
-                    
-                    const properties = e.features[0].properties;
-                    const popupContent = createPopupContent(properties, sourceId);
-
-                    // Ensure popup coordinates are valid
-                    while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-                        coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-                    }
-
-                    // Create popup
-                    const popup = new mapboxgl.Popup()
-                        .setLngLat(coordinates)
-                        .setHTML(popupContent)
-                        .addTo(map);
-
-                    // Handle click on popup content to open new page
-                    popup.getElement().addEventListener('click', () => {
-                        handleMarkerClick(properties, sourceId);
-                    });
-
-                    // Also open the new page directly when marker is clicked
-                    handleMarkerClick(properties, sourceId);
+                    handleMarkerClick(e.features[0].properties);
                 }
             });
         }
@@ -444,7 +366,6 @@
         // Function to load and add a data layer
         async function loadDataLayer(sourceId, config) {
             try {
-                console.log(`Loading data for ${sourceId}...`);
                 const response = await fetch(config.url);
                 
                 if (!response.ok) {
@@ -458,8 +379,6 @@
                     return;
                 }
 
-                console.log(`Loaded ${data.features.length} features for ${sourceId}`);
-
                 // Add source to map
                 map.addSource(sourceId, {
                     type: 'geojson',
@@ -469,7 +388,6 @@
 
                 // Add layers based on type
                 if (config.type === 'fill') {
-                    // Add fill layer
                     map.addLayer({
                         id: `${sourceId}-fill`,
                         type: 'fill',
@@ -477,7 +395,6 @@
                         paint: config.paint
                     });
 
-                    // Add border layer
                     if (config.border) {
                         map.addLayer({
                             id: `${sourceId}-border`,
@@ -487,10 +404,7 @@
                         });
                     }
 
-                    addLayerInteractivity(`${sourceId}-fill`, sourceId, config);
-
                 } else if (config.type === 'circle') {
-                    // Add circle layer for points
                     map.addLayer({
                         id: `${sourceId}-circle`,
                         type: 'circle',
@@ -498,28 +412,21 @@
                         paint: config.paint
                     });
 
-                    addLayerInteractivity(`${sourceId}-circle`, sourceId, config);
+                    addLayerInteractivity(`${sourceId}-circle`, sourceId);
                 }
-
-                console.log(`Successfully added ${sourceId} layer`);
 
             } catch (error) {
                 console.error(`Error loading ${sourceId}:`, error);
-                // Continue loading other layers even if one fails
             }
         }
 
         // Main map initialization
         map.on('load', async () => {
-            console.log('Map loaded, starting to load data layers...');
-            
             try {
-                // Load layers in order (background to foreground)
+                // Load layers in order
                 await loadDataLayer('rcp-jurisdiction', dataSources['rcp-jurisdiction']);
                 await loadDataLayer('rcp-searched-parcels', dataSources['rcp-searched-parcels']);
                 await loadDataLayer('eligible-parcels', dataSources['eligible-parcels']);
-                
-                console.log('All layers loaded successfully');
                 
                 // Set up legend checkbox event listeners
                 document.getElementById('toggle-eligible').addEventListener('change', (e) => {
@@ -537,14 +444,12 @@
             } catch (error) {
                 console.error('Error during layer loading:', error);
             } finally {
-                // Hide loading message
                 const loadingEl = document.getElementById('loading');
                 if (loadingEl) {
                     loadingEl.style.display = 'none';
                 }
             }
 
-            // Ensure map is properly sized
             map.resize();
         });
 
@@ -556,6 +461,11 @@
         // Handle window resize
         window.addEventListener('resize', () => {
             map.resize();
+        });
+
+        // Listen for messages from parent (if embedded as iframe)
+        window.addEventListener('message', function(event) {
+            console.log('Received message from parent:', event.data);
         });
     </script>
 </body>
