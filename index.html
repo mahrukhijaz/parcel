@@ -4,10 +4,16 @@
     <meta charset="utf-8">
     <title>Stormwater Incentives Map</title>
     <meta name="viewport" content="width=device-width, initial-scale=1,maximum-scale=1,user-scalable=no">
+
+    <!-- 1. Mapbox GL JS CSS -->
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <!-- 2. Mapbox GL JS script -->
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <!-- 3. Tailwind for styling (optional, since you used it already) -->
     <script src="https://cdn.tailwindcss.com"></script>
+
     <style>
+        /* Copy your existing styles or adjust as needed */
         body {
             font-family: "Inter", sans-serif;
             margin: 0;
@@ -20,7 +26,6 @@
             min-height: 100vh;
             padding: 20px;
         }
-
         #map-container {
             position: relative;
             width: 100%;
@@ -33,7 +38,6 @@
             justify-content: center;
             align-items: center;
         }
-
         #map {
             position: absolute;
             top: 0;
@@ -41,19 +45,16 @@
             width: 100%;
             height: 100%;
         }
-
         .mapboxgl-popup {
             max-width: 200px;
             pointer-events: none;
         }
-
         .mapboxgl-popup-content {
             padding: 8px;
             border-radius: 4px;
             font-size: 12px;
             text-align: center;
         }
-
         .loading-message {
             position: absolute;
             top: 50%;
@@ -66,7 +67,6 @@
             z-index: 1000;
             text-align: center;
         }
-
         .map-legend {
             position: absolute;
             bottom: 20px;
@@ -78,20 +78,17 @@
             z-index: 100;
             max-width: 250px;
         }
-
         .legend-title {
             font-weight: bold;
             font-size: 16px;
             margin-bottom: 10px;
             color: #2d3748;
         }
-
         .legend-item {
             display: flex;
             align-items: center;
             margin-bottom: 8px;
         }
-
         .legend-color {
             width: 20px;
             height: 20px;
@@ -99,17 +96,14 @@
             margin-right: 10px;
             border: 2px solid white;
         }
-
         .legend-label {
             font-size: 14px;
             color: #4a5568;
             flex-grow: 1;
         }
-
         .legend-checkbox {
             margin-left: 10px;
         }
-
         @media (max-width: 768px) {
             body {
                 padding: 10px;
@@ -156,37 +150,15 @@
     </div>
     
     <script>
-        // Set your Mapbox access token
+        // ====== 1. CONFIGURATION ======
+        // Replace with your Mapbox access token
         mapboxgl.accessToken = 'pk.eyJ1IjoiaGFpcm9yaCIsImEiOiJja2h2aTd2N2swZzBxMnJtbGpubm9rNTE5In0.Wg8YDTveso5NOTWgM5-1vw';
 
-        // Initial map parameters for the Seattle area
+        // Initial center & zoom
         const initialCenter = [-122.3436, 47.6242];
         const initialZoom = 11.73;
 
-        // Initialize the Mapbox map
-        const map = new mapboxgl.Map({
-            container: 'map',
-            style: 'mapbox://styles/mapbox/light-v10',
-            center: initialCenter,
-            zoom: initialZoom,
-            minZoom: 9,
-            maxZoom: 18,
-            maxBounds: [
-                [-123.5, 47.0],
-                [-121.5, 48.0]
-            ],
-            attributionControl: true
-        });
-
-        // Add navigation controls
-        map.addControl(new mapboxgl.NavigationControl());
-
-        // Variables to track hover states
-        let hoveredFeatureId = null;
-        let hoveredSourceId = null;
-        let currentPopup = null;
-
-        // Data sources configuration
+        // GeoJSON data sources (adjust URLs to your actual endpoints)
         const dataSources = {
             'rcp-jurisdiction': {
                 url: 'https://storage.googleapis.com/xdt4-sgrc-gzqm.n7c.xano.io/vault/5ijVgHwa/dAQDJrgldK-oqTH3kgqtx0tPBRk/eSGYEw../rcp_jurisdiction.json',
@@ -258,17 +230,18 @@
             }
         };
 
-        // Function to set cookie and notify parent
+        // ====== 2. COOKIE UTILITIES (iframe-only) ======
         function setCookie(name, value, days) {
-            let expires = "";
+            let expires = '';
             if (days) {
                 const date = new Date();
-                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-                expires = "; expires=" + date.toUTCString();
+                date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+                expires = '; expires=' + date.toUTCString();
             }
+            // SameSite=None; Secure so cross-site iframe can set it if on HTTPS
             document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/; SameSite=None; Secure`;
-            
-            // Notify parent if in iframe
+
+            // Notify parent window if in iframe
             if (window.self !== window.top) {
                 window.parent.postMessage({
                     type: 'mapCookieSet',
@@ -277,13 +250,19 @@
                 }, '*');
             }
         }
+        function getNameCookie() {
+            const match = document.cookie.split('; ').find(entry => entry.startsWith('name='));
+            return match ? decodeURIComponent(match.substring('name='.length)) : null;
+        }
 
-        // Function to handle marker click - sets cookie and posts message
+        // ====== 3. HANDLE MARKER CLICK ======
         function handleMarkerClick(properties) {
             const address = properties.address || properties.name || properties.engaged || 'Unknown address';
+            // 3a. Set cookie in iframe (optional; parent cannot read if cross-domain)
             setCookie('name', address, 1);
-            
-            // Send POST message to parent window (for iframe usage)
+            console.log('Iframe: cookie "name" set to:', getNameCookie());
+
+            // 3b. Post message to parent with clicked info
             if (window.parent && window.parent !== window) {
                 window.parent.postMessage({
                     type: 'markerClicked',
@@ -291,102 +270,76 @@
                     properties: properties
                 }, '*');
             }
-            
-            console.log('Cookie set and message posted for address:', address);
+            console.log('Iframe: posted markerClicked message for address:', address);
         }
 
-        // Function to add interactivity to layers
+        // ====== 4. LAYER INTERACTIVITY ======
+        let hoveredFeatureId = null;
+        let hoveredSourceId = null;
+        let currentPopup = null;
         function addLayerInteractivity(layerId, sourceId) {
-            // Hover effects - show address popup
+            // Hover: highlight + popup
             map.on('mouseenter', layerId, (e) => {
-                if (e.features.length > 0) {
-                    // Update hover state
-                    if (hoveredFeatureId !== null && hoveredSourceId !== null) {
-                        map.setFeatureState(
-                            { source: hoveredSourceId, id: hoveredFeatureId },
-                            { hover: false }
-                        );
-                    }
-                    
-                    hoveredFeatureId = e.features[0].id;
-                    hoveredSourceId = sourceId;
-                    map.setFeatureState(
-                        { source: sourceId, id: hoveredFeatureId },
-                        { hover: true }
-                    );
-                    
-                    // Show address popup
-                    const address = e.features[0].properties.address || 
-                                   e.features[0].properties.name || 
-                                   e.features[0].properties.engaged || 
-                                   'Address not available';
-                    
-                    if (currentPopup) currentPopup.remove();
-                    
-                    currentPopup = new mapboxgl.Popup({ closeOnClick: false })
-                        .setLngLat(e.lngLat)
-                        .setText(address)
-                        .addTo(map);
-                    
-                    map.getCanvas().style.cursor = 'pointer';
+                if (!e.features || !e.features.length) return;
+                if (hoveredFeatureId !== null && hoveredSourceId !== null) {
+                    map.setFeatureState({ source: hoveredSourceId, id: hoveredFeatureId }, { hover: false });
                 }
-            });
+                hoveredFeatureId = e.features[0].id;
+                hoveredSourceId = sourceId;
+                map.setFeatureState({ source: sourceId, id: hoveredFeatureId }, { hover: true });
 
+                // Show popup
+                const address = e.features[0].properties.address ||
+                                e.features[0].properties.name ||
+                                e.features[0].properties.engaged ||
+                                'Address not available';
+                if (currentPopup) currentPopup.remove();
+                currentPopup = new mapboxgl.Popup({ closeOnClick: false })
+                    .setLngLat(e.lngLat)
+                    .setText(address)
+                    .addTo(map);
+                map.getCanvas().style.cursor = 'pointer';
+            });
             map.on('mouseleave', layerId, () => {
                 if (hoveredFeatureId !== null && hoveredSourceId !== null) {
-                    map.setFeatureState(
-                        { source: hoveredSourceId, id: hoveredFeatureId },
-                        { hover: false }
-                    );
+                    map.setFeatureState({ source: hoveredSourceId, id: hoveredFeatureId }, { hover: false });
                 }
                 hoveredFeatureId = null;
                 hoveredSourceId = null;
                 if (currentPopup) currentPopup.remove();
                 map.getCanvas().style.cursor = '';
             });
-
-            // Click handler - only sets cookie, no URL opening
+            // Click: trigger our handler
             map.on('click', layerId, (e) => {
-                if (e.features.length > 0) {
-                    handleMarkerClick(e.features[0].properties);
-                }
+                if (!e.features || !e.features.length) return;
+                handleMarkerClick(e.features[0].properties);
             });
         }
 
-        // Function to toggle layer visibility
+        // ====== 5. TOGGLE VISIBILITY ======
         function toggleLayerVisibility(layerIds, show) {
             layerIds.forEach(layerId => {
                 if (map.getLayer(layerId)) {
-                    const visibility = show ? 'visible' : 'none';
-                    map.setLayoutProperty(layerId, 'visibility', visibility);
+                    map.setLayoutProperty(layerId, 'visibility', show ? 'visible' : 'none');
                 }
             });
         }
 
-        // Function to load and add a data layer
+        // ====== 6. LOAD GEOJSON LAYER ======
         async function loadDataLayer(sourceId, config) {
             try {
                 const response = await fetch(config.url);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
-                
-                if (!data || !data.features || data.features.length === 0) {
-                    console.warn(`No features found for ${sourceId}`);
+                if (!data || !data.features || !data.features.length) {
+                    console.warn(`No features for ${sourceId}`);
                     return;
                 }
-
-                // Add source to map
                 map.addSource(sourceId, {
                     type: 'geojson',
                     data: data,
-                    promoteId: 'id'
+                    promoteId: 'id'  // ensure your GeoJSON features have unique `id`
                 });
-
-                // Add layers based on type
                 if (config.type === 'fill') {
                     map.addLayer({
                         id: `${sourceId}-fill`,
@@ -394,7 +347,6 @@
                         source: sourceId,
                         paint: config.paint
                     });
-
                     if (config.border) {
                         map.addLayer({
                             id: `${sourceId}-border`,
@@ -403,7 +355,6 @@
                             paint: config.border
                         });
                     }
-
                 } else if (config.type === 'circle') {
                     map.addLayer({
                         id: `${sourceId}-circle`,
@@ -411,61 +362,60 @@
                         source: sourceId,
                         paint: config.paint
                     });
-
                     addLayerInteractivity(`${sourceId}-circle`, sourceId);
                 }
-
-            } catch (error) {
-                console.error(`Error loading ${sourceId}:`, error);
+            } catch (err) {
+                console.error(`Error loading ${sourceId}:`, err);
             }
         }
 
-        // Main map initialization
+        // ====== 7. INITIALIZE MAP ======
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/light-v10',
+            center: initialCenter,
+            zoom: initialZoom,
+            minZoom: 9,
+            maxZoom: 18,
+            maxBounds: [
+                [-123.5, 47.0],
+                [-121.5, 48.0]
+            ],
+            attributionControl: true
+        });
+        map.addControl(new mapboxgl.NavigationControl());
+
         map.on('load', async () => {
             try {
-                // Load layers in order
+                // Load in order
                 await loadDataLayer('rcp-jurisdiction', dataSources['rcp-jurisdiction']);
                 await loadDataLayer('rcp-searched-parcels', dataSources['rcp-searched-parcels']);
                 await loadDataLayer('eligible-parcels', dataSources['eligible-parcels']);
-                
-                // Set up legend checkbox event listeners
-                document.getElementById('toggle-eligible').addEventListener('change', (e) => {
-                    toggleLayerVisibility(dataSources['eligible-parcels'].layerIds, e.target.checked);
-                });
-                
-                document.getElementById('toggle-searched').addEventListener('change', (e) => {
-                    toggleLayerVisibility(dataSources['rcp-searched-parcels'].layerIds, e.target.checked);
-                });
-                
-                document.getElementById('toggle-jurisdiction').addEventListener('change', (e) => {
-                    toggleLayerVisibility(dataSources['rcp-jurisdiction'].layerIds, e.target.checked);
-                });
-                
-            } catch (error) {
-                console.error('Error during layer loading:', error);
+
+                // Legend toggles
+                document.getElementById('toggle-eligible')
+                    .addEventListener('change', e => toggleLayerVisibility(dataSources['eligible-parcels'].layerIds, e.target.checked));
+                document.getElementById('toggle-searched')
+                    .addEventListener('change', e => toggleLayerVisibility(dataSources['rcp-searched-parcels'].layerIds, e.target.checked));
+                document.getElementById('toggle-jurisdiction')
+                    .addEventListener('change', e => toggleLayerVisibility(dataSources['rcp-jurisdiction'].layerIds, e.target.checked));
+            } catch (err) {
+                console.error('Layer loading error:', err);
             } finally {
                 const loadingEl = document.getElementById('loading');
-                if (loadingEl) {
-                    loadingEl.style.display = 'none';
-                }
+                if (loadingEl) loadingEl.style.display = 'none';
             }
-
             map.resize();
         });
 
-        // Handle map errors
-        map.on('error', (e) => {
-            console.error('Map error:', e);
-        });
+        // Map error handling
+        map.on('error', (e) => console.error('Map error:', e));
+        window.addEventListener('resize', () => map.resize());
 
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            map.resize();
-        });
-
-        // Listen for messages from parent (if embedded as iframe)
-        window.addEventListener('message', function(event) {
-            console.log('Received message from parent:', event.data);
+        // Optional: listen for messages from parent
+        window.addEventListener('message', (event) => {
+            console.log('Iframe received message from parent:', event.data);
+            // You can act on messages here if needed
         });
     </script>
 </body>
